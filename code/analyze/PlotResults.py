@@ -84,6 +84,10 @@ if __name__ == "__main__":
     parser.add_argument("--numfuncs", type=int, default=20, required=False)
     parser.add_argument("--char", type=str, default="a", required=False)
     parser.add_argument("--policy", type=str, default="RAND", required=False)
-    
+
     args = parser.parse_args()
+
+    if not os.path.exists(args.plotdir):
+      os.mkdir(args.plotdir)
+
     plot_all(args)
