@@ -32,6 +32,9 @@ class LambdaScheduler:
         if self.eviction_policy == "RAND":
           # Function to be called pick containers to evict
           self.EvictionFunc = self.RandomEvictionPicker
+        elif self.eviction_policy == "CLOSEST_SIZE":
+            self.EvictionFunc = self.equalSizePicker
+            # self.EvictionFunc = self.evict_closest_size_container
         else:
           raise NotImplementedError("Unkonwn eviction policy: {}".format(self.eviction_policy))
 
@@ -135,6 +138,82 @@ class LambdaScheduler:
 
       return eviction_list
 
+
+    # ----------- Helpers -----------
+
+    def binary_search_closest(arr, key):
+        start = 0
+        end = len(arr) - 1
+        
+        while start < end:
+            mid = start + (end - start) // 2
+            if key > arr[mid].metadata.mem_size:
+                start = mid + 1
+            else:
+                end = mid
+        return end
+
+    def equalSizePicker(self,to_free):
+        def binsearchclosest(arr,free):
+            '''
+            [1,2,3,4,9,8]
+            '''
+            l = 0; r = len(arr) - 1
+            while(l < r):
+                mid = (l+r)//2
+                if arr[mid].metadata.mem_size < free:
+                    #go right
+                    l = mid + 1
+                
+                else:
+                    #go left
+                    r = mid
+
+            return arr.pop(l)
+
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        available.sort(key=lambda x: x.metadata.mem_size) #NlogN
+
+        while to_free > 0 and len(available) > 0: #NlogN
+            victim = binsearchclosest(available,to_free) #logN
+            #available.remove(victim)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+
+        return eviction_list
+    # -------- Custom policies -----------
+
+    def evict_closest_size_container(self, to_free):
+        """ Evict a container with a size closest to `to_free`.
+        Sort the available list first and then perform binary search.
+        This policy is not dependent on warm/cold run time of the function.
+        """
+        eviction_list = []
+
+        # Find non-running containers
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+        # available_container_sizes = [[available[i].metadata.mem_size, i] for i in range(len(available))]
+        available.sort(key=lambda c: c.metadata.mem_size)
+
+        # print("available_container_sizes:", available_container_sizes)
+
+        while to_free > 0 and len(available) > 0:
+            # edge case: if to_free is larger than max(available sizes), we receive largest c to evict
+            # hence while loop is needed to continue evicting till `to_free` <= 0
+
+            closest_container_index = self.binary_search_closest(available_container_sizes, to_free)
+            victim_index = available_container_sizes[closest_container_index][1]
+
+            victim = available[victim_index]
+            available.remove(victim)
+            available_container_sizes.pop(closest_container_index)
+
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+
+        return eviction_list
     #############################################################
 
     def Eviction(self, d: LambdaData):
