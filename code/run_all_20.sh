@@ -7,7 +7,7 @@ memory_dir="$trace_output_dir/memory"
 plot_dir="./figs/"
 num_funcs=20
 char='a'
-policy="CLOSEST_SIZE"
+policy="LFU_CLASSIC"
 
 # -------------------- a --------------------
 
@@ -17,7 +17,7 @@ python3 ./sim/ParallelRunner.py --tracedir $trace_dir --numfuncs $num_funcs --sa
 # plot graphs
 python3 ./analyze/PlotResults.py --pckldir $trace_output_dir --plotdir $plot_dir --numfuncs $num_funcs --char $char --policy $policy
 
-echo "********* 20 A tests are done."
+echo "********* 20 A tests are done *********"
 
 # -------------------- b --------------------
 
@@ -29,7 +29,7 @@ python3 ./sim/ParallelRunner.py --tracedir $trace_dir --numfuncs $num_funcs --sa
 # plot graphs
 python3 ./analyze/PlotResults.py --pckldir $trace_output_dir --plotdir $plot_dir --numfuncs $num_funcs --char $char --policy $policy
 
-echo "********* 20 B tests are done."
+echo "********* 20 B tests are done *********"
 
 # -------------------- c --------------------
 
@@ -41,4 +41,4 @@ python3 ./sim/ParallelRunner.py --tracedir $trace_dir --numfuncs $num_funcs --sa
 # plot graphs
 python3 ./analyze/PlotResults.py --pckldir $trace_output_dir --plotdir $plot_dir --numfuncs $num_funcs --char $char --policy $policy
 
-echo "********* 20 C tests are done."
+echo "********* 20 C tests are done *********"

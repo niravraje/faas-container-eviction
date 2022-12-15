@@ -5,7 +5,8 @@ class Container:
     state = "COLD"
     
     def __init__(self, lamdata: LambdaData):
-        self.metadata = lamdata 
+        self.metadata = lamdata
+        self.invoke_freq = 1
         
     def prewarm(self):
         self.state = "WARM"

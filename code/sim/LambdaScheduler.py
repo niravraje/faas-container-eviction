@@ -29,12 +29,37 @@ class LambdaScheduler:
         self.provider_overhead_base = 3000 # 3 seconds
         self.provider_overhead_pct = 0.2 # 20% of function runtime added to cold start
 
+        # ---- Newly added data structures ----
+        self.lru_cache = {}
+
+
         if self.eviction_policy == "RAND":
           # Function to be called pick containers to evict
           self.EvictionFunc = self.RandomEvictionPicker
-        elif self.eviction_policy == "CLOSEST_SIZE":
-            self.EvictionFunc = self.equalSizePicker
-            # self.EvictionFunc = self.evict_closest_size_container
+
+        elif self.eviction_policy == "CLOSEST_SIZE_LARGEST_KICK":
+            self.EvictionFunc = self.evict_closest_else_kick_largest
+
+        elif self.eviction_policy == "CLOSEST_SIZE_SMALLEST_KICK":
+            self.EvictionFunc = self.evict_closest_else_kick_smallest
+            
+        elif self.eviction_policy == "LRU":
+            self.EvictionFunc = self.evict_lru
+
+        elif self.eviction_policy == "LFU_CLASSIC":
+            self.EvictionFunc = self.evict_lfu_classic
+
+        elif self.eviction_policy == "LFU_GROUP_CLOSEST":
+            self.EvictionFunc = self.evict_lfu_group_closest
+
+        elif self.eviction_policy == "LFU_GROUP_MAX_COLD_TIME":
+            self.EvictionFunc = self.evict_lfu_group_maxcoldtime
+
+        elif self.eviction_policy == "LFU_GROUP_MAX_INIT_TIME":
+            self.EvictionFunc = self.evict_lfu_group_maxinittime
+
+        elif self.eviction_policy == "LFUGROUP_MAXINITGROUP_CLOSEST":
+            self.EvictionFunc = self.evict_lfu_group_maxinitgroup_closest
         else:
           raise NotImplementedError("Unkonwn eviction policy: {}".format(self.eviction_policy))
 
@@ -141,10 +166,9 @@ class LambdaScheduler:
 
     # ----------- Helpers -----------
 
-    def binary_search_closest(arr, key):
+    def binary_search_closest(self, arr, key):
         start = 0
         end = len(arr) - 1
-        
         while start < end:
             mid = start + (end - start) // 2
             if key > arr[mid].metadata.mem_size:
@@ -153,67 +177,195 @@ class LambdaScheduler:
                 end = mid
         return end
 
-    def equalSizePicker(self,to_free):
-        def binsearchclosest(arr,free):
-            '''
-            [1,2,3,4,9,8]
-            '''
-            l = 0; r = len(arr) - 1
-            while(l < r):
-                mid = (l+r)//2
-                if arr[mid].metadata.mem_size < free:
-                    #go right
-                    l = mid + 1
-                
-                else:
-                    #go left
-                    r = mid
-
-            return arr.pop(l)
-
-        eviction_list = []
-        available = [c for c in self.ContainerPool if c not in self.RunningC]
-
-        available.sort(key=lambda x: x.metadata.mem_size) #NlogN
-
-        while to_free > 0 and len(available) > 0: #NlogN
-            victim = binsearchclosest(available,to_free) #logN
-            #available.remove(victim)
-            eviction_list.append(victim)
-            to_free -= victim.metadata.mem_size
-
-        return eviction_list
     # -------- Custom policies -----------
 
-    def evict_closest_size_container(self, to_free):
-        """ Evict a container with a size closest to `to_free`.
+    def evict_closest_else_kick_largest(self, to_free):
+        """ Naive approach. Evict a container with a size closest to `to_free`.
+        If `to_free` is greater than max mem size of largest container, then kick out largest container
+
         Sort the available list first and then perform binary search.
         This policy is not dependent on warm/cold run time of the function.
         """
         eviction_list = []
-
-        # Find non-running containers
         available = [c for c in self.ContainerPool if c not in self.RunningC]
-        # available_container_sizes = [[available[i].metadata.mem_size, i] for i in range(len(available))]
         available.sort(key=lambda c: c.metadata.mem_size)
 
-        # print("available_container_sizes:", available_container_sizes)
+        while to_free > 0 and len(available) > 0:
+            victim_index = self.binary_search_closest(available, to_free)
+            victim = available.pop(victim_index)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+
+        return eviction_list
+
+    def evict_closest_else_kick_smallest(self, to_free):
+        """ Naive approach. Evict a container with a size closest to `to_free`.
+        If `to_free` is greater than max mem size of largest container, then kick out smallest container
+
+        Sort the available list first and then perform binary search.
+        This policy is not dependent on warm/cold run time of the function.
+        """
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+        available.sort(key=lambda c: c.metadata.mem_size)
 
         while to_free > 0 and len(available) > 0:
-            # edge case: if to_free is larger than max(available sizes), we receive largest c to evict
-            # hence while loop is needed to continue evicting till `to_free` <= 0
-
-            closest_container_index = self.binary_search_closest(available_container_sizes, to_free)
-            victim_index = available_container_sizes[closest_container_index][1]
-
-            victim = available[victim_index]
-            available.remove(victim)
-            available_container_sizes.pop(closest_container_index)
+            if to_free > available[-1].metadata.mem_size:
+                victim_index = 0
+            else:
+                victim_index = self.binary_search_closest(available, to_free)
+            victim = available.pop(victim_index)
 
             eviction_list.append(victim)
             to_free -= victim.metadata.mem_size
 
         return eviction_list
+    
+    def evict_lru(self, to_free):
+        """ Evict the least recently used/invoked container """
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        victim_index = 0
+        cache_iterator = iter(self.lru_cache)
+
+        while to_free > 0 and len(available) > 0:
+            victim = next(cache_iterator)
+            if victim not in available:
+                continue
+
+            available.remove(victim)
+            del self.lru_cache[victim]
+            cache_iterator = iter(self.lru_cache)
+
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+
+        return eviction_list
+
+    def evict_lfu_classic(self, to_free):
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # Sort descendingly to allow pop in O(1)
+        available.sort(key=lambda c: c.invoke_freq, reverse=True)
+
+        while to_free > 0 and len(available) > 0:
+            victim = available.pop() # O(1)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+
+        return eviction_list
+
+    def evict_lfu_group_closest(self, to_free):
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # Note: Sorting in ascending invoke_freq here, least invoked is at the start
+        available.sort(key=lambda c: c.invoke_freq)
+        group_size = 5
+
+        while to_free > 0 and len(available) > 0:
+            available_group = available[:group_size]
+            # binary search to get closest memsize container
+            victim_index = self.binary_search_closest(available_group, to_free)
+            victim = available_group[victim_index]
+
+            available.remove(victim)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+        return eviction_list
+
+    def evict_lfu_group_maxcoldtime(self, to_free):
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # Note: Sorting in ascending invoke_freq here, least invoked is at the start
+        available.sort(key=lambda c: c.invoke_freq)
+        group_size = 5
+
+        while to_free > 0 and len(available) > 0:
+            available_group = available[:group_size]
+
+            # ASCENDING sort by cold start times
+            available_group.sort(key=lambda c: c.metadata.run_time)
+
+            victim = available_group.pop()
+            available.remove(victim)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+
+        return eviction_list
+    
+    def evict_lfu_group_maxinittime(self, to_free):
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # Note: Sorting in ascending invoke_freq here, least invoked is at the start
+        available.sort(key=lambda c: c.invoke_freq)
+        group_size = 5
+
+        while to_free > 0 and len(available) > 0:
+            available_group = available[:group_size]
+
+            # DESCENDING sort by initialization time (environment setup time)
+            available_group.sort(key=lambda c: c.metadata.run_time - c.metadata.warm_time)
+
+            # choose container with least init/setup time as victim
+            victim = available_group.pop()
+            
+            available.remove(victim)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+
+        return eviction_list
+
+    def evict_lfu_group_maxinitgroup_closest(self, to_free):
+        """
+        Approach:
+            Double-sorted-group approach:
+            - First find "n" LFU containers.
+            - Sort the lfu_group by initialization time.
+            - From the sorted lfu_group, find "m" (where m < n) containers with the least initialization time
+            - This is our maxinit_group. Sort the maxinit_group by mem_size.
+            - In the sorted maxinit_group, perform Binary Search to find closest mem_size container.
+            - This container is chosen as the victim.
+        """
+
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # Note: Sorting in ascending invoke_freq here, least invoked is at the start
+        available.sort(key=lambda c: c.invoke_freq)
+        lfu_group_size = 10
+        maxinit_group_size = 5
+
+        while to_free > 0 and len(available) > 0:
+            available_group = available[:lfu_group_size]
+
+            # ASCENDING sort by initialization time
+            lfu_group.sort(key=lambda c: c.metadata.run_time - c.metadata.warm_time)
+
+            maxinit_group = lfu_group[:maxinit_group_size]
+
+            # ASCENDING sort by mem_size
+            maxinit_group.sort(key=lambda c: c.metadata.mem_size)
+
+            # Binary search for the closest sized container from this sorted sub-group
+            victim_index = self.binary_search_closest(maxinit_group, to_free)
+
+            victim = maxinit_group[victim_index]
+
+            available.remove(victim)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+        
+        return eviction_list
+
+
+            
+
+
     #############################################################
 
     def Eviction(self, d: LambdaData):
@@ -243,6 +395,7 @@ class LambdaScheduler:
         Evicts non-running containers in an attempt to make room
         """
         c = Container(d)
+
         if not self.CheckFree(c) : #due to space constraints
           evicted = self.Eviction(d) #Is a list. containers already terminated
 
@@ -288,12 +441,21 @@ class LambdaScheduler:
             processing_time = self.ColdHitProcTime(d)
             self.RunningC[c] = (t, t+processing_time)
             self.WritePerfLog(d, t, "miss")
-
         else:
             c.run()
             processing_time = d.warm_time
             self.RunningC[c] = (t, t+processing_time)
             self.WritePerfLog(d, t, "hit")
+
+            if self.eviction_policy == "LRU":
+                # if hit, pop first to "move_to_front" later
+                self.lru_cache.pop(c)
+
+        if self.eviction_policy == "LRU":      
+            self.lru_cache[c] = None
+
+        if self.eviction_policy == "LFU_CLASSIC":
+            c.invoke_freq += 1
 
         self.FunctionHistoryList.append((d,t))
         self.AssertMemory()

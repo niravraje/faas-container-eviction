@@ -7,7 +7,7 @@ memory_dir="$trace_output_dir/memory"
 plot_dir="./figs/"
 num_funcs=20
 char='b'
-policy="CLOSEST_SIZE"
+policy="RAND"
 
 # run simulation
 python3 ./sim/ParallelRunner.py --tracedir $trace_dir --numfuncs $num_funcs --savedir $trace_output_dir --logdir $log_dir --char $char --policy $policy --mem 2000 --mem 3000 --mem 3500 --mem 4000 --mem 1000 --mem 1500
