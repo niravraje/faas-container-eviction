@@ -7,7 +7,7 @@ memory_dir="$trace_output_dir/memory"
 plot_dir="./figs/"
 num_funcs=100
 char='c'
-policy="RAND"
+policy="LFUGROUP_MAXINITGROUP_CLOSEST"
 
 # run simulation
 python3 ./sim/ParallelRunner.py --tracedir $trace_dir --numfuncs $num_funcs --savedir $trace_output_dir --logdir $log_dir --char $char --policy $policy  --mem 7500 --mem 10000 --mem 11000 --mem 5000 --mem 3000 --mem 4000

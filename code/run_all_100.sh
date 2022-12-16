@@ -10,7 +10,16 @@ char='a'
 # policy="RAND"
 # policy="CLOSEST_SIZE_LARGEST_KICK"
 # policy="CLOSEST_SIZE_SMALLEST_KICK"
-policy="LRU"
+# policy="LRU"
+# policy="LFU_CLASSIC"
+# policy="LFU_GROUP_CLOSEST"
+# policy="LFU_GROUP_MAX_COLD_TIME"
+# policy="LFU_GROUP_MAX_INIT_TIME"
+policy="LFUGROUP_MAXINITGROUP_CLOSEST"
+# policy="LFUGROUP_CLOSESTGROUP_MAXINIT"
+# policy="LFUGROUP_MAXINITGROUP_LARGEST"
+# policy="DUAL_GREEDY_PRIORITY"
+
 
 # -------------------- a --------------------
 

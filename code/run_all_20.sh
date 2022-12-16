@@ -7,7 +7,7 @@ memory_dir="$trace_output_dir/memory"
 plot_dir="./figs/"
 num_funcs=20
 char='a'
-policy="LFU_CLASSIC"
+policy="LFUGROUP_MAXINITGROUP_CLOSEST"
 
 # -------------------- a --------------------
 

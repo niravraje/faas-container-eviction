@@ -7,6 +7,8 @@ class Container:
     def __init__(self, lamdata: LambdaData):
         self.metadata = lamdata
         self.invoke_freq = 1
+        self.priority = 0
+        self.init_time = lamdata.run_time - lamdata.warm_time
         
     def prewarm(self):
         self.state = "WARM"

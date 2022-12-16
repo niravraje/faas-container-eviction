@@ -4,6 +4,7 @@ from collections import defaultdict
 from LambdaData import *
 from Container import *
 import os
+from heapq import heappush, heappop
 
 class LambdaScheduler:
 
@@ -31,7 +32,7 @@ class LambdaScheduler:
 
         # ---- Newly added data structures ----
         self.lru_cache = {}
-
+        self.priority_min_heap = []
 
         if self.eviction_policy == "RAND":
           # Function to be called pick containers to evict
@@ -60,6 +61,16 @@ class LambdaScheduler:
 
         elif self.eviction_policy == "LFUGROUP_MAXINITGROUP_CLOSEST":
             self.EvictionFunc = self.evict_lfu_group_maxinitgroup_closest
+
+        elif self.eviction_policy == "LFUGROUP_CLOSESTGROUP_MAXINIT":
+            self.EvictionFunc = self.evict_lfu_group_closestgroup_maxinit
+        
+        elif self.eviction_policy == "LFUGROUP_MAXINITGROUP_LARGEST":
+            self.EvictionFunc = self.evict_lfu_group_maxinitgroup_largest
+
+        elif self.eviction_policy == "DUAL_GREEDY_PRIORITY":
+            self.EvictionFunc = self.evict_dual_greedy_priority_based
+
         else:
           raise NotImplementedError("Unkonwn eviction policy: {}".format(self.eviction_policy))
 
@@ -263,7 +274,7 @@ class LambdaScheduler:
 
         # Note: Sorting in ascending invoke_freq here, least invoked is at the start
         available.sort(key=lambda c: c.invoke_freq)
-        group_size = 5
+        group_size = int(0.1 * len(available)) if len(available) > 40 else 4
 
         while to_free > 0 and len(available) > 0:
             available_group = available[:group_size]
@@ -282,7 +293,7 @@ class LambdaScheduler:
 
         # Note: Sorting in ascending invoke_freq here, least invoked is at the start
         available.sort(key=lambda c: c.invoke_freq)
-        group_size = 5
+        group_size = int(0.1 * len(available)) if len(available) > 40 else 4
 
         while to_free > 0 and len(available) > 0:
             available_group = available[:group_size]
@@ -303,16 +314,17 @@ class LambdaScheduler:
 
         # Note: Sorting in ascending invoke_freq here, least invoked is at the start
         available.sort(key=lambda c: c.invoke_freq)
-        group_size = 5
+
+        group_size = int(0.1 * len(available)) if len(available) > 40 else 4
 
         while to_free > 0 and len(available) > 0:
-            available_group = available[:group_size]
+            lfu_group = available[:group_size]
 
-            # DESCENDING sort by initialization time (environment setup time)
-            available_group.sort(key=lambda c: c.metadata.run_time - c.metadata.warm_time)
+            # ASCENDING sort by initialization time (environment setup time)
+            lfu_group.sort(key=lambda c: c.metadata.run_time - c.metadata.warm_time)
 
             # choose container with least init/setup time as victim
-            victim = available_group.pop()
+            victim = lfu_group[0]
             
             available.remove(victim)
             eviction_list.append(victim)
@@ -331,17 +343,17 @@ class LambdaScheduler:
             - In the sorted maxinit_group, perform Binary Search to find closest mem_size container.
             - This container is chosen as the victim.
         """
-
         eviction_list = []
         available = [c for c in self.ContainerPool if c not in self.RunningC]
 
         # Note: Sorting in ascending invoke_freq here, least invoked is at the start
         available.sort(key=lambda c: c.invoke_freq)
-        lfu_group_size = 10
-        maxinit_group_size = 5
+
+        lfu_group_size = int(0.1 * len(available)) if len(available) > 40 else 4
+        maxinit_group_size = int(0.05 * len(available)) if len(available) > 40 else 2
 
         while to_free > 0 and len(available) > 0:
-            available_group = available[:lfu_group_size]
+            lfu_group = available[:lfu_group_size]
 
             # ASCENDING sort by initialization time
             lfu_group.sort(key=lambda c: c.metadata.run_time - c.metadata.warm_time)
@@ -353,8 +365,8 @@ class LambdaScheduler:
 
             # Binary search for the closest sized container from this sorted sub-group
             victim_index = self.binary_search_closest(maxinit_group, to_free)
-
             victim = maxinit_group[victim_index]
+            # victim = maxinit_group[-1] # get largest container
 
             available.remove(victim)
             eviction_list.append(victim)
@@ -363,8 +375,89 @@ class LambdaScheduler:
         return eviction_list
 
 
-            
+    def find_closest_group(self, arr, key, group_size):
+        if group_size >= len(arr):
+            return arr
+        
+        victim_group_start = self.binary_search_closest(arr, key)
 
+        victim_group_start = min(victim_group_start, len(arr) - group_size)
+
+        return arr[victim_group_start:]
+        
+
+    def evict_lfu_group_closestgroup_maxinit(self, to_free):
+        """
+        """
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # Note: Sorting in ascending invoke_freq here, least invoked is at the start
+        available.sort(key=lambda c: c.invoke_freq)
+        lfu_group_size = int(0.1 * len(available)) if len(available) > 60 else 6
+        closest_group_size = int(0.05 * len(available)) if len(available) > 60 else 3
+        while to_free > 0 and len(available) > 0:
+            lfu_group = available[:lfu_group_size]
+
+            # ASCENDING sort by mem_size
+            lfu_group.sort(key=lambda c: c.metadata.mem_size)
+
+            closest_group = self.find_closest_group(lfu_group, to_free, closest_group_size)
+
+            # ASCENDING sort by initialization time
+            closest_group.sort(key=lambda c: c.metadata.run_time - c.metadata.warm_time)
+
+            # Choose container with least init time from closest group as victim
+            victim = closest_group[0]
+
+            available.remove(victim)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+        
+        return eviction_list    
+
+    def evict_lfu_group_maxinitgroup_largest(self, to_free):
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # Note: Sorting in ascending invoke_freq here, least invoked is at the start
+        available.sort(key=lambda c: c.invoke_freq)
+
+        lfu_group_size = int(0.1 * len(available)) if len(available) > 40 else 4
+        maxinit_group_size = int(0.05 * len(available)) if len(available) > 40 else 2
+
+        while to_free > 0 and len(available) > 0:
+            lfu_group = available[:lfu_group_size]
+
+            # ASCENDING sort by initialization time
+            lfu_group.sort(key=lambda c: c.metadata.run_time - c.metadata.warm_time)
+
+            maxinit_group = lfu_group[:maxinit_group_size]
+
+            # ASCENDING sort by mem_size
+            maxinit_group.sort(key=lambda c: c.metadata.mem_size)
+
+            victim = maxinit_group[-1] # get largest container
+
+            available.remove(victim)
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+        
+        return eviction_list
+
+    def evict_dual_greedy_priority_based(self, to_free):
+        eviction_list = []
+        available = [c for c in self.ContainerPool if c not in self.RunningC]
+
+        # sort descending
+        available.sort(key=lambda c: c.priority, reverse=True)
+
+        # containers_to_put_back = []
+        while to_free > 0 and len(available) > 0:
+            victim = available.pop()
+            eviction_list.append(victim)
+            to_free -= victim.metadata.mem_size
+        return eviction_list
 
     #############################################################
 
@@ -429,6 +522,8 @@ class LambdaScheduler:
         self.wall_time = t
         self.cleanup_finished()
 
+        # print("container pool len:", len(self.ContainerPool))
+
         c = self.find_container(d)
         if c is None:
             #Launch a new container since we didnt find one for the metadata ...
@@ -449,13 +544,17 @@ class LambdaScheduler:
 
             if self.eviction_policy == "LRU":
                 # if hit, pop first to "move_to_front" later
-                self.lru_cache.pop(c)
+                self.lru_cache.pop(c) # lru_cache is a dict, dict.pop() is like list.remove()
+
 
         if self.eviction_policy == "LRU":      
             self.lru_cache[c] = None
 
-        if self.eviction_policy == "LFU_CLASSIC":
-            c.invoke_freq += 1
+        c.invoke_freq += 1
+
+        # For the dual-greedy approach given in the FaaSCache paper (cited in the report)
+        if self.eviction_policy == "DUAL_GREEDY_PRIORITY":
+            c.priority = self.wall_time + (c.init_time * c.invoke_freq / c.metadata.mem_size)
 
         self.FunctionHistoryList.append((d,t))
         self.AssertMemory()
