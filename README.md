@@ -71,7 +71,7 @@ Running the `LambdaScheduler.py` file will run this one trace at a specific memo
   - `evdict` - Accounting of the number of times each function has been evicted
   - `capacity_misses` - functions dropped due to insufficient resources
 
-## Sugested places to make changes
+## Suggested places to make changes
 
 `RandomEvictionPicker`. 
 You will need to provide a custom eviction picker function, and in the constructor assign it to `EvictionFunc`.
