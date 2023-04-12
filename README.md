@@ -3,9 +3,9 @@
 
 ## Nirav Raje - Changes Made in the Original Codebase
 
-- In LambdaScheduler.py, added eviction policies by setting `self.eviction_policy` in the constructor of LambdaScheduler
-- In LambdaScheduler.py in the runInvocation() method, added the code to increment frequency on invocation for LFU-based policies, add to LRU cache for the LRU policy, priority calculation for DUAL_GREEDY approach.
-- In Container.py, added `invoke_freq`, `init_time` and `priority` for the Container object:
+- In LambdaScheduler.py, added eviction policies by setting `self.eviction_policy` in the constructor of LambdaScheduler. [[Link]](https://github.com/niravraje/faas-container-eviction/blob/c9cee4fd19919d5906743eb4bbab841b605d13fd/code/sim/LambdaScheduler.py#L33)
+- In LambdaScheduler.py in the runInvocation() method, added the code to increment frequency on invocation for LFU-based policies, add to LRU cache for the LRU policy, priority calculation for DUAL_GREEDY approach. [[Link]](https://github.com/niravraje/faas-container-eviction/blob/c9cee4fd19919d5906743eb4bbab841b605d13fd/code/sim/LambdaScheduler.py#L520)
+- In Container.py, added `invoke_freq`, `init_time` and `priority` for the Container object. [[Link]](https://github.com/niravraje/faas-container-eviction/blob/c9cee4fd19919d5906743eb4bbab841b605d13fd/code/sim/Container.py#L7)
   ```
   class Container:
     
@@ -17,7 +17,7 @@
         self.priority = 0
         self.init_time = lamdata.run_time - lamdata.warm_time
   ```
-- Below the RandomEvictionPicker function, there is a list of functions added as per the `self.eviction_policy` set containing all policy functions.
+- Below the RandomEvictionPicker function, there is a list of functions added as per the `self.eviction_policy` set containing all policy functions. [[Link]](https://github.com/niravraje/faas-container-eviction/blob/c9cee4fd19919d5906743eb4bbab841b605d13fd/code/sim/LambdaScheduler.py#L191)
 - The example scripts `run_all_20.sh`, `run_all_50.sh`, `run_all_100.sh` make it convenient to run a, b, and c traces for 20, 50 and 100 functions together.
 
 ## Overall design. 
